@@ -9,6 +9,8 @@ public sealed class LlmOptions
     public string Provider { get; set; } = "anthropic";
 
     public AnthropicOptions Anthropic { get; set; } = new();
+
+    public OpenAiOptions OpenAi { get; set; } = new();
 }
 
 public sealed class AnthropicOptions
@@ -24,4 +26,21 @@ public sealed class AnthropicOptions
 
     /// <summary>Reasoning effort: low, medium, high, xhigh or max. Null sends the provider default.</summary>
     public string? Effort { get; set; } = "low";
+}
+
+/// <summary>
+/// Any OpenAI-compatible chat completions endpoint. The defaults point at a
+/// local Ollama, which needs no key.
+/// </summary>
+public sealed class OpenAiOptions
+{
+    /// <summary>Falls back to the OPENAI_API_KEY environment variable; omitted entirely when neither is set.</summary>
+    public string? ApiKey { get; set; }
+
+    public string Model { get; set; } = "llama3.1";
+
+    public string BaseUrl { get; set; } = "http://localhost:11434/v1";
+
+    /// <summary>Sent as max_tokens when set. Null lets the server decide.</summary>
+    public int? MaxTokens { get; set; }
 }

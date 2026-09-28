@@ -1,15 +1,16 @@
+using Microsoft.Extensions.Options;
 using TodoAgent.Api.Agent;
 using TodoAgent.Api.Agent.Llm;
 using TodoAgent.Api.Features.Chat;
 using TodoAgent.Api.Features.Chat.SendMessage;
-using TodoAgent.Api.Features.Tools;
-using TodoAgent.Api.Mcp;
 using TodoAgent.Api.Features.Shared;
 using TodoAgent.Api.Features.Todos;
 using TodoAgent.Api.Features.Todos.CompleteTodo;
 using TodoAgent.Api.Features.Todos.CreateTodo;
 using TodoAgent.Api.Features.Todos.DeleteTodo;
 using TodoAgent.Api.Features.Todos.ListTodos;
+using TodoAgent.Api.Features.Tools;
+using TodoAgent.Api.Mcp;
 
 // Program.cs is the composition root: it wires dependencies, maps endpoints and
 // starts the host. It contains no behaviour of its own. Every feature lives in
@@ -32,7 +33,13 @@ builder.Services.AddTransient<DeleteTodoHandler>();
 // LLM: configuration picks the provider. Nothing outside Agent/Llm knows which one.
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection(LlmOptions.SectionName));
 builder.Services.AddHttpClient<AnthropicLlmClient>();
-builder.Services.AddTransient<ILlmClient>(sp => sp.GetRequiredService<AnthropicLlmClient>());
+builder.Services.AddHttpClient<OpenAiLlmClient>();
+builder.Services.AddTransient<ILlmClient>(sp =>
+    sp.GetRequiredService<IOptions<LlmOptions>>().Value.Provider.ToLowerInvariant() switch
+    {
+        "openai" => sp.GetRequiredService<OpenAiLlmClient>(),
+        _ => sp.GetRequiredService<AnthropicLlmClient>(),
+    });
 
 // Tools: one ITool per todo slice, each a thin adapter over that slice's handler.
 builder.Services.AddTransient<ITool, ListTodosTool>();
