@@ -7,9 +7,11 @@ interface Props {
   error: string | null;
   loading: boolean;
   add: (title: string) => Promise<void>;
+  complete: (id: number) => Promise<void>;
+  remove: (id: number) => Promise<void>;
 }
 
-export function TodoList({ todos, error, loading, add }: Props) {
+export function TodoList({ todos, error, loading, add, complete, remove }: Props) {
   const [title, setTitle] = useState("");
 
   async function onSubmit(event: FormEvent) {
@@ -42,7 +44,7 @@ export function TodoList({ todos, error, loading, add }: Props) {
       ) : (
         <ul className="todo-list">
           {todos.map((todo) => (
-            <TodoItem key={todo.id} todo={todo} />
+            <TodoItem key={todo.id} todo={todo} onComplete={complete} onDelete={remove} />
           ))}
         </ul>
       )}

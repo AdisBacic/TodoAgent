@@ -56,3 +56,14 @@ export async function createTodo(title: string): Promise<Todo> {
   if (!response.ok) await throwProblem(response);
   return (await response.json()) as Todo;
 }
+
+export async function completeTodo(id: number): Promise<Todo> {
+  const response = await fetch(`/api/todos/${id}/complete`, { method: "POST" });
+  if (!response.ok) await throwProblem(response);
+  return (await response.json()) as Todo;
+}
+
+export async function deleteTodo(id: number): Promise<void> {
+  const response = await fetch(`/api/todos/${id}`, { method: "DELETE" });
+  if (!response.ok) await throwProblem(response);
+}

@@ -1,6 +1,8 @@
 using TodoAgent.Api.Features.Shared;
 using TodoAgent.Api.Features.Todos;
+using TodoAgent.Api.Features.Todos.CompleteTodo;
 using TodoAgent.Api.Features.Todos.CreateTodo;
+using TodoAgent.Api.Features.Todos.DeleteTodo;
 using TodoAgent.Api.Features.Todos.ListTodos;
 
 // Program.cs is the composition root: it wires dependencies, maps endpoints and
@@ -10,26 +12,36 @@ using TodoAgent.Api.Features.Todos.ListTodos;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Cross-cutting: domain exceptions become problem+json responses.
+// Problem+json for anything that fails, including unhandled 500s outside Development.
 builder.Services.AddProblemDetails();
-builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 
 // Todos: one store, one handler per slice.
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ITodoStore, InMemoryTodoStore>();
 builder.Services.AddTransient<ListTodosHandler>();
 builder.Services.AddTransient<CreateTodoHandler>();
+builder.Services.AddTransient<CompleteTodoHandler>();
+builder.Services.AddTransient<DeleteTodoHandler>();
 
 var app = builder.Build();
 
-app.UseExceptionHandler();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler();
+}
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }))
    .WithName("Health");
 
-var todos = app.MapGroup("/api/todos").WithTags("Todos");
+// Every todo endpoint sits in one group: one prefix, one filter that turns
+// ValidationException and NotFoundException into 400 and 404 responses.
+var todos = app.MapGroup("/api/todos")
+    .WithTags("Todos")
+    .AddEndpointFilter<DomainExceptionFilter>();
 ListTodosEndpoint.Map(todos);
 CreateTodoEndpoint.Map(todos);
+CompleteTodoEndpoint.Map(todos);
+DeleteTodoEndpoint.Map(todos);
 
 app.Run();
 

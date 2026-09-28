@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, createTodo, listTodos, type Todo } from "./api";
+import {
+  ApiError,
+  completeTodo,
+  createTodo,
+  deleteTodo,
+  listTodos,
+  type Todo,
+} from "./api";
 
 // Holds the list and exposes the actions. Every action re-reads the list from
 // the server afterwards rather than patching local state: the API is the source
@@ -24,10 +31,10 @@ export function useTodos() {
     void reload();
   }, [reload]);
 
-  const add = useCallback(
-    async (title: string) => {
+  const run = useCallback(
+    async (action: () => Promise<unknown>) => {
       try {
-        await createTodo(title);
+        await action();
         await reload();
       } catch (e) {
         setError(describe(e));
@@ -36,7 +43,11 @@ export function useTodos() {
     [reload],
   );
 
-  return { todos, error, loading, reload, add };
+  const add = useCallback((title: string) => run(() => createTodo(title)), [run]);
+  const complete = useCallback((id: number) => run(() => completeTodo(id)), [run]);
+  const remove = useCallback((id: number) => run(() => deleteTodo(id)), [run]);
+
+  return { todos, error, loading, reload, add, complete, remove };
 }
 
 function describe(e: unknown): string {

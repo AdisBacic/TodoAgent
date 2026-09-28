@@ -8,7 +8,7 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>TodoAgent</h1>
-        <p className="muted">Chapter 1: a todo list, four slices, no AI yet.</p>
+        <p className="muted">Chapter 1: four slices behind one list. No AI yet.</p>
       </header>
       <main className="app-main">
         <TodoList {...todos} />
