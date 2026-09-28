@@ -3,6 +3,7 @@ using TodoAgent.Api.Agent.Llm;
 using TodoAgent.Api.Features.Chat;
 using TodoAgent.Api.Features.Chat.SendMessage;
 using TodoAgent.Api.Features.Tools;
+using TodoAgent.Api.Mcp;
 using TodoAgent.Api.Features.Shared;
 using TodoAgent.Api.Features.Todos;
 using TodoAgent.Api.Features.Todos.CompleteTodo;
@@ -38,7 +39,22 @@ builder.Services.AddTransient<ITool, ListTodosTool>();
 builder.Services.AddTransient<ITool, CreateTodoTool>();
 builder.Services.AddTransient<ITool, CompleteTodoTool>();
 builder.Services.AddTransient<ITool, DeleteTodoTool>();
-builder.Services.AddSingleton<IToolProvider, InProcessToolProvider>();
+
+// Where the loop gets its tools. Chapter 2: straight from DI. Chapter 3: from
+// MCP servers, this app's own included. This is the one line that changes; the
+// loop, the tools and the slices are untouched either way.
+builder.Services.Configure<McpOptions>(builder.Configuration.GetSection(McpOptions.SectionName));
+if (builder.Configuration["Tools:Provider"] == "mcp")
+{
+    builder.Services.AddSingleton<IToolProvider, McpToolProvider>();
+}
+else
+{
+    builder.Services.AddSingleton<IToolProvider, InProcessToolProvider>();
+}
+
+// The MCP server: the same four tools, served at /mcp for any MCP client.
+builder.Services.AddTodoMcpServer();
 
 // Agent: the loop, its fail-safe settings, and where conversations live.
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection(AgentOptions.SectionName));
@@ -71,6 +87,8 @@ var chat = app.MapGroup("/api/chat")
     .WithTags("Chat")
     .AddEndpointFilter<DomainExceptionFilter>();
 SendMessageEndpoint.Map(chat);
+
+app.MapMcp("/mcp");
 
 app.Run();
 

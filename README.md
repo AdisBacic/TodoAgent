@@ -169,3 +169,158 @@ back, and "reload from the server" is the simplest correct thing.
 
 **What to read next:** `Program.cs` top to bottom, then `Features/Todos/CreateTodo/` in the
 order above, then `CreateTodoTests.cs`.
+
+## 3. Chapter 3 — MCP: the loop doesn't know where tools live
+
+Chapter 2 ended with the loop asking `IToolProvider` for tools and `InProcessToolProvider`
+handing back the four `ITool`s from DI. Chapter 3 keeps the loop, the tools and the slices
+exactly as they are and changes where the tools *arrive from*.
+
+Two new files in `Mcp/`:
+
+- **`TodoMcpServer.cs`** exposes the in-process `ITool`s over MCP. It registers two request
+  handlers with the official `ModelContextProtocol` SDK: `tools/list` returns each tool's name,
+  description and input schema; `tools/call` finds the tool by name, invokes it, and returns
+  its text with `isError` set from `ToolResult.IsError`. The mapping is one to one and the
+  handler bodies are a few lines each. `Program.cs` mounts it at `/mcp`.
+- **`McpToolProvider.cs`** is an `IToolProvider` that connects to the servers listed under
+  `Mcp:Servers`, calls `tools/list` on each, and wraps every entry as an `ITool` whose
+  `InvokeAsync` sends `tools/call`. It supports Streamable HTTP (`Url`) and stdio (`Command`
+  plus `Arguments`), so the same configuration can point at this app or at any MCP server.
+
+### The one line
+
+```csharp
+if (builder.Configuration["Tools:Provider"] == "mcp")
+{
+    builder.Services.AddSingleton<IToolProvider, McpToolProvider>();
+}
+else
+{
+    builder.Services.AddSingleton<IToolProvider, InProcessToolProvider>();
+}
+```
+
+Set `Tools:Provider` to `mcp` and the agent's tool calls leave the process, cross an MCP
+session to `/mcp` on this same app, run the same handlers, and come back. `AgentLoop.cs` has no
+diff in this chapter. Neither does any file under `Features/`.
+
+### The one diagram that matters
+
+```
+                     Tools:Provider = "inprocess"            Tools:Provider = "mcp"
+
+ AgentLoop ──► IToolProvider ──► InProcessToolProvider      AgentLoop ──► IToolProvider ──► McpToolProvider
+                                       │                                                        │ tools/list, tools/call
+                                       ▼                                                        ▼ (HTTP or stdio)
+                                  ITool × 4                                              MCP server (/mcp)
+                                       │                                                        │ TodoMcpServer
+                                       ▼                                                        ▼
+                                 slice handlers                                            ITool × 4 ──► slice handlers
+```
+
+### Why the loopback is not silly
+
+Yes, with the default configuration the app talks to itself over HTTP. That is the point of
+the chapter: the tool calls now travel as a protocol, not as method calls, and nothing in the
+loop noticed. The moment you want a tool this codebase does not contain, you add a server:
+
+```json
+"Mcp": {
+  "Servers": [
+    { "Name": "todos", "Url": "http://localhost:5080/mcp" },
+    { "Name": "files", "Command": "npx", "Arguments": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/agent"] }
+  ]
+}
+```
+
+Restart, and the model can read and write files it was never coded for. The loop still has
+no diff.
+
+### Decision: hand-written JSON-RPC or the SDK
+
+The SDK. The learning value of this project is the agent loop and the tool contract; framing
+JSON-RPC 2.0 over Streamable HTTP with session ids and SSE resumption is not where the
+insight is. `TodoMcpServer` and `McpToolProvider` together are under 200 lines, and every
+line is about *our* tools, not about the transport. If you want to see the wire, run the app
+and POST an `initialize` request to `/mcp` with curl.
+
+**What to read next:** `Mcp/TodoMcpServer.cs`, `Mcp/McpToolProvider.cs`, then
+`tests/TodoAgent.Tests/Mcp/McpRoundTripTests.cs`, which runs the whole thing in one process.
+
+## 4. Testing an agent without an API key
+
+Nothing in `tests/` talks to a model. Three fakes cover everything:
+
+- **`FakeLlmClient`** (`tests/Agent/FakeLlmClient.cs`) is a scripted `ILlmClient`. A test
+  writes the model's side of the conversation up front, `CallTool("create_todo", ...)` then
+  `Reply("Added.")`, and the fake also records every request it received. So a test asserts
+  two things: the events the loop emitted, and the conversation the model saw on each call
+  (system prompt first, tool results fed back with the right ids, and so on).
+- **`RecordingTool`** is an `ITool` with scripted behaviour that records its inputs, for tests
+  about the loop rather than about todos. Tests about todos use the real tools and the real
+  in-memory store; there is nothing to gain from mocking a dictionary.
+- **`StubHttpMessageHandler`** answers `AnthropicLlmClient` with canned JSON and captures the
+  request. That pins the wire format: header names, `input_schema`, tool results grouped into
+  one user message, reasoning blocks replayed verbatim.
+
+What the loop tests actually assert (`AgentLoopTests.cs`):
+
+| Test | Property |
+|---|---|
+| Text-only reply yields text then done | The base case |
+| Tool call is run and its result fed back | The loop closes; the model sees `ToolResultMessage` with its own call id |
+| Parallel tool calls all run before the next model call | Results are returned together |
+| Tool exception becomes an error result | The fail-safe; the run continues |
+| Unknown tool name becomes an error result | The model is told what tools exist |
+| Iteration cap stops a model that never finishes | Exactly N model calls, then `MaxIterationsReached` |
+| Model failure yields an error event | History stays consistent for the next attempt |
+| Rerunning resumes from the last persisted step | Only the unanswered tool call runs; the model sees both results |
+| Run budget expiring yields a timeout error | The linked token works through a tool |
+
+Two integration classes round it out. `SendMessageTests` posts to the real SSE endpoint with
+the fake model swapped in through `WebApplicationFactory`, and checks the frames and the
+resulting todos. `McpRoundTripTests` starts the app, connects `McpToolProvider` to its own
+`/mcp` through the test server's in-memory handler, and proves the tools listed over MCP are
+byte-for-byte the in-process ones, then runs a chat with `Tools:Provider=mcp`.
+
+## 5. Where to go next
+
+Each of these is a slice or a file, in the spirit of the chapters above:
+
+- **SQLite store.** A second `ITodoStore` in `Features/Todos/SqliteTodoStore.cs` and one DI
+  line. The slices and tools do not change. Do the same for `IConversationStore` and the
+  resume property survives a restart.
+- **Auth.** A bearer token on `/api` and `/mcp`, and a user id flowing into the store calls.
+  In this codebase that means `ITodoStore` methods take a user, and the tools read it from
+  the conversation rather than from the model's input, so the model cannot pick a user.
+- **External MCP servers.** Add a server entry, restart, ask the agent for something the
+  codebase cannot do. Watch the tool list in the log.
+- **Streaming token deltas.** `AgentEvent.TextDelta` already exists for it. `ILlmClient` would
+  grow a streaming method; `AnthropicLlmClient` would read the SSE stream from the provider
+  and yield deltas; the loop would forward them. The endpoint and the UI already cope.
+- **`OpenAiLlmClient`.** The second adapter, covering any OpenAI-compatible endpoint
+  including Ollama. See chapter 2's neutral types: it is the same translation in the other
+  dialect.
+
+## 6. Optional chapter 4 — moving the loop off the request
+
+Today the loop runs inside the SSE request. That is fine for .NET: awaited I/O releases the
+thread, and a run is a few seconds. Three things still need the loop off the request:
+replaying a run to a client that reconnected, retrying a run that failed after tools already
+executed, and surviving a closed tab.
+
+The shape, with no change to `AgentLoop`:
+
+1. `SendMessageHandler` writes an `AgentRun { ConversationId }` to a `Channel<AgentRun>` and
+   returns immediately.
+2. A `BackgroundService` reads the channel and calls `RunAsync(conversationId)` for each run.
+3. Every event is already persisted through `IConversationStore`; the service also pushes each
+   one to the client over SignalR (or a persisted event log the SSE endpoint replays).
+4. **Retry policy**: two or three attempts, each one calling `RunAsync` again. Because the loop
+   resumes from persisted state and does not restart, a tool that already ran is not run again.
+   After the last attempt, emit a `run_failed` event so the chat can re-enable its input.
+
+Repeated failures are almost always a key, a rate limit, or a prompt problem, not the loop.
+The same design in Rails is Sidekiq plus Turbo Streams; the invariant across both is that the
+loop never knows who is calling it.
