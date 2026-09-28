@@ -1,11 +1,88 @@
+<div align="center">
+
 # TodoAgent
 
-A todo app with two front doors to the same features: a React UI and an AI chat.
-The chat is an agent that discovers tools over MCP and calls them to do work for you.
+**A todo app with two front doors to the same four features: a React UI, and an AI agent that discovers its tools over MCP.**
 
-This repository is a learning project, written to be read in order. The git history
-is the table of contents: each chapter below was one or two commits, and every commit
-leaves the app runnable and the tests green.
+[![CI](https://github.com/AdisBacic/TodoAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/AdisBacic/TodoAgent/actions/workflows/ci.yml)
+![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)
+![React 19](https://img.shields.io/badge/React-19-20232A?logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-C%23%20SDK%202.2-111111)
+![No AI framework](https://img.shields.io/badge/AI%20framework-none-2ea44f)
+
+<br>
+
+<img src="docs/screenshot.png" alt="TodoAgent: the todo list on the left, the agent's step timeline on the right" width="920">
+
+<sub>The step timeline: every tool call and its result, streamed over Server-Sent Events while the agent works.</sub>
+
+</div>
+
+<br>
+
+Type *"add buy oat milk and book dentist"* into the chat and watch the agent call `create_todo` twice, read the results, and confirm in one line. Click **Done** on the list and it is the same handler the agent just used. There is exactly one implementation of every feature; the UI and the agent are two callers of it.
+
+This is a learning project written to be read in order. The README is the book, the git history is its table of contents, and every commit leaves the app runnable and the tests green.
+
+## What's inside
+
+| | |
+|---|---|
+| **Vertical slices** | `Features/Todos/CreateTodo/` owns its request, validator, handler, endpoint and tests. No MediatR, no repository layer, no project-per-layer. |
+| **An agent loop you can read** | `Agent/AgentLoop.cs` is a `while` around a model call: ask, run the tools it asked for, feed the results back, stop on a plain answer or the iteration cap. |
+| **Raw LLM calls** | `AnthropicLlmClient` and `OpenAiLlmClient` are `HttpClient` + `System.Text.Json`, the wire formats spelled out. Provider-neutral types in between; nothing outside `Agent/Llm` knows a provider. |
+| **Tools over MCP** | `TodoMcpServer` serves the same four tools at `/mcp` with the official C# SDK; `McpToolProvider` consumes any MCP server (HTTP or stdio). Flipping one config value moves the tool calls across a real protocol, and the loop has no diff. |
+| **Streaming UI** | The chat endpoint streams `AgentEvent`s as SSE; the React timeline shows `→ create_todo({"title":"buy milk"})` and `← {"id":1,…}` as they happen. |
+| **Resume-safe by design** | Every message is persisted the moment it exists. Re-running an interrupted conversation resumes from the last stored tool result instead of restarting. |
+| **62 tests, no API key** | A scripted fake model, stubbed HTTP for both adapters, the real SSE endpoint through `WebApplicationFactory`, and an MCP round trip in one process. |
+
+## Quick start
+
+Prerequisites: [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0), Node 22.
+
+```bash
+git clone https://github.com/AdisBacic/TodoAgent.git && cd TodoAgent
+
+# the model: Anthropic (default) …
+dotnet user-secrets set "Llm:Anthropic:ApiKey" "sk-ant-..." --project src/TodoAgent.Api
+# … or a local Ollama, no key needed
+ollama pull llama3.1 && export Llm__Provider=openai
+
+# API on http://localhost:5080
+dotnet run --project src/TodoAgent.Api
+
+# Web on http://localhost:5173 (proxies /api to the API)
+cd src/TodoAgent.Web && npm install && npm run dev
+```
+
+Then, to serve the agent's tools over MCP instead of in-process (chapter 3):
+
+```bash
+Tools__Provider=mcp dotnet run --project src/TodoAgent.Api
+```
+
+Tests: `dotnet test`. Without a model key the todo list works and the chat answers with a single `error` event saying what to set. All settings are described under [Configuration](#configuration).
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    UI[React UI] -->|REST| EP[Slice endpoints]
+    Chat[Chat panel] -->|POST, SSE back| SM[SendMessage endpoint]
+    SM --> Loop[AgentLoop]
+    Loop -->|ILlmClient| LLM[(Anthropic / OpenAI-compatible)]
+    Loop -->|IToolProvider| TP{in-process<br/>or MCP?}
+    TP -->|inprocess| Tools[ITool × 4]
+    TP -->|mcp| MCP[McpToolProvider] -->|tools/list, tools/call| Srv[/mcp TodoMcpServer/] --> Tools
+    EP --> H[Slice handlers]
+    Tools --> H
+    H --> Store[(ITodoStore)]
+```
+
+Three interfaces carry the whole design: `ILlmClient` (which model), `ITool` (what a tool is), `IToolProvider` (where tools come from). The loop depends on nothing else.
+
+## The book
 
 | Chapter | What it adds |
 |---|---|
@@ -13,35 +90,15 @@ leaves the app runnable and the tests green.
 | [1. A slice, dissected](#1-chapter-1--a-slice-dissected) | Four todo slices and a React list. No AI yet |
 | [2. What an agent loop actually is](#2-chapter-2--what-an-agent-loop-actually-is) | `ILlmClient`, `ITool`, `AgentLoop`, streamed to the UI over SSE |
 | [Interlude. Tool-calling vs. asking for JSON](#interlude--tool-calling-vs-asking-the-model-for-json) | Why the loop got simpler when we stopped parsing prose |
-| [3. MCP: the loop doesn't know where tools live](#3-chapter-3--mcp-the-loop-doesnt-know-where-tools-live) | The same tools served over MCP and consumed by an MCP client. One DI line changes |
+| [Configuration](#configuration) | Every setting, and where the key goes |
+| [3. MCP: the loop doesn't know where tools live](#3-chapter-3--mcp-the-loop-doesnt-know-where-tools-live) | The same tools served over MCP and consumed by an MCP client. One line changes |
 | [4. Testing an agent without an API key](#4-testing-an-agent-without-an-api-key) | A scripted fake LLM and what the loop tests actually assert |
 | [5. Where to go next](#5-where-to-go-next) | SQLite, auth, external MCP servers, token streaming |
 | [6. Optional chapter 4: moving the loop off the request](#6-optional-chapter-4--moving-the-loop-off-the-request) | Background execution, replay, retries |
 
-## Running it
+The chapters mirror the git history: `git log --oneline --reverse` is the same list.
 
-Prerequisites: .NET 9 SDK, Node 22.
-
-```bash
-# API on http://localhost:5080
-dotnet run --project src/TodoAgent.Api
-
-# Web on http://localhost:5173 (proxies /api to the API)
-cd src/TodoAgent.Web && npm install && npm run dev
-
-# Tests
-dotnet test
-```
-
-Health check: `GET http://localhost:5080/api/health`.
-
-The chat needs a model. See [Configuration](#configuration) for the Anthropic key, or for
-pointing it at a local Ollama. To run with tools served over MCP instead of in-process
-(chapter 3):
-
-```bash
-Tools__Provider=mcp dotnet run --project src/TodoAgent.Api
-```
+---
 
 ## 0. Why vertical slices
 
