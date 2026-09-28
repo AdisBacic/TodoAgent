@@ -200,6 +200,18 @@ public class AgentLoopTests
     }
 
     [Fact]
+    public async Task Unexpected_model_exception_is_still_an_error_event()
+    {
+        var h = new Harness();
+        h.Llm.Throw(new HttpRequestException("connection refused"));
+
+        var events = await h.RunAsync();
+
+        var error = Assert.IsType<AgentEvent.Error>(Assert.Single(events));
+        Assert.Contains("connection refused", error.Message);
+    }
+
+    [Fact]
     public async Task Refusal_yields_an_error_event()
     {
         var h = new Harness();

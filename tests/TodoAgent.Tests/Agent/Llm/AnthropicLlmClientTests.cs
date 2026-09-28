@@ -164,6 +164,36 @@ public class AnthropicLlmClientTests
     }
 
     [Fact]
+    public async Task Transport_failure_is_an_LlmException_naming_the_endpoint()
+    {
+        var http = new ThrowingHandler(new HttpRequestException("Connection refused"));
+        var options = Options.Create(new LlmOptions { Anthropic = new AnthropicOptions { ApiKey = "k", BaseUrl = "http://127.0.0.1:1" } });
+        var client = new AnthropicLlmClient(new HttpClient(http), options, NullLogger<AnthropicLlmClient>.Instance);
+
+        var ex = await Assert.ThrowsAsync<LlmException>(() =>
+            client.CompleteAsync([new UserMessage("hi")], [], CancellationToken.None));
+
+        Assert.Contains("127.0.0.1", ex.Message);
+        Assert.Contains("Connection refused", ex.Message);
+    }
+
+    [Fact]
+    public async Task Unparseable_body_is_an_LlmException()
+    {
+        var (client, http) = Create();
+        http.Respond("<html>not json</html>");
+
+        await Assert.ThrowsAsync<LlmException>(() =>
+            client.CompleteAsync([new UserMessage("hi")], [], CancellationToken.None));
+    }
+
+    private sealed class ThrowingHandler(Exception exception) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            throw exception;
+    }
+
+    [Fact]
     public async Task Non_success_status_is_an_LlmException_with_the_body()
     {
         var (client, http) = Create();

@@ -147,3 +147,85 @@ button:disabled {
   display: flex;
   gap: 6px;
 }
+
+/* Chapter 2: the chat panel and its step timeline */
+
+@media (min-width: 820px) {
+  .app-main.two-column {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+
+.chat-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.step {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.step-user {
+  background: var(--accent);
+  color: var(--accent-text);
+  align-self: flex-end;
+  max-width: 85%;
+}
+
+.step-assistant {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  align-self: flex-start;
+  max-width: 85%;
+}
+
+.step-tool {
+  border-left: 3px solid var(--border);
+  padding: 4px 10px;
+}
+
+.tool-call {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-call code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-request {
+  color: var(--text);
+}
+
+.tool-result {
+  color: var(--ok);
+}
+
+.tool-result.is-error,
+.step-text.is-error {
+  color: var(--danger);
+}
+
+.step-notice {
+  font-style: italic;
+}

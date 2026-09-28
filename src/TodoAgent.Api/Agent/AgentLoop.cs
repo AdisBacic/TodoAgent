@@ -159,8 +159,10 @@ public sealed class AgentLoop(
         {
             return (null, TimeoutMessage);
         }
-        catch (LlmException ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // LlmException is the expected shape; anything else is still reported
+            // as an event rather than tearing down a stream that is already open.
             logger.LogError(ex, "Model call failed");
             return (null, ex.Message);
         }

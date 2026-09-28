@@ -1,6 +1,7 @@
 using TodoAgent.Api.Agent;
 using TodoAgent.Api.Agent.Llm;
 using TodoAgent.Api.Features.Chat;
+using TodoAgent.Api.Features.Chat.SendMessage;
 using TodoAgent.Api.Features.Tools;
 using TodoAgent.Api.Features.Shared;
 using TodoAgent.Api.Features.Todos;
@@ -43,6 +44,7 @@ builder.Services.AddSingleton<IToolProvider, InProcessToolProvider>();
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection(AgentOptions.SectionName));
 builder.Services.AddSingleton<IConversationStore, InMemoryConversationStore>();
 builder.Services.AddTransient<AgentLoop>();
+builder.Services.AddTransient<SendMessageHandler>();
 
 var app = builder.Build();
 
@@ -63,6 +65,12 @@ ListTodosEndpoint.Map(todos);
 CreateTodoEndpoint.Map(todos);
 CompleteTodoEndpoint.Map(todos);
 DeleteTodoEndpoint.Map(todos);
+
+// The chat's one endpoint streams the agent's steps as Server-Sent Events.
+var chat = app.MapGroup("/api/chat")
+    .WithTags("Chat")
+    .AddEndpointFilter<DomainExceptionFilter>();
+SendMessageEndpoint.Map(chat);
 
 app.Run();
 

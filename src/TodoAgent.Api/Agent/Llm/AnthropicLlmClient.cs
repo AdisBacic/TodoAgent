@@ -58,17 +58,42 @@ public sealed class AnthropicLlmClient : ILlmClient
 
         _logger.LogDebug("Anthropic request: {Model}, {MessageCount} messages, {ToolCount} tools", body.Model, body.Messages.Count, body.Tools.Count);
 
-        using var response = await _http.SendAsync(request, ct);
-        var responseText = await response.Content.ReadAsStringAsync(ct);
-        if (!response.IsSuccessStatusCode)
+        // Every way the call can fail surfaces as one exception type, so the
+        // loop has one thing to catch and one message to show.
+        HttpResponseMessage response;
+        string responseText;
+        try
         {
-            throw new LlmException($"Anthropic returned {(int)response.StatusCode}: {responseText}");
+            response = await _http.SendAsync(request, ct);
+            responseText = await response.Content.ReadAsStringAsync(ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new LlmException($"Could not reach Anthropic at {_http.BaseAddress}: {ex.Message}", ex);
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new LlmException("The Anthropic request timed out.", ex);
         }
 
-        var parsed = JsonSerializer.Deserialize<MessagesResponse>(responseText, Json)
-            ?? throw new LlmException("Anthropic returned an empty body.");
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new LlmException($"Anthropic returned {(int)response.StatusCode}: {responseText}");
+            }
+        }
 
-        return FromWire(parsed);
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<MessagesResponse>(responseText, Json)
+                ?? throw new LlmException("Anthropic returned an empty body.");
+            return FromWire(parsed);
+        }
+        catch (JsonException ex)
+        {
+            throw new LlmException($"Anthropic returned a body that could not be parsed: {ex.Message}", ex);
+        }
     }
 
     // ---- neutral -> wire -------------------------------------------------
