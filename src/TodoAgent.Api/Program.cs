@@ -1,3 +1,4 @@
+using TodoAgent.Api.Agent.Llm;
 using TodoAgent.Api.Features.Shared;
 using TodoAgent.Api.Features.Todos;
 using TodoAgent.Api.Features.Todos.CompleteTodo;
@@ -22,6 +23,11 @@ builder.Services.AddTransient<ListTodosHandler>();
 builder.Services.AddTransient<CreateTodoHandler>();
 builder.Services.AddTransient<CompleteTodoHandler>();
 builder.Services.AddTransient<DeleteTodoHandler>();
+
+// LLM: configuration picks the provider. Nothing outside Agent/Llm knows which one.
+builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection(LlmOptions.SectionName));
+builder.Services.AddHttpClient<AnthropicLlmClient>();
+builder.Services.AddTransient<ILlmClient>(sp => sp.GetRequiredService<AnthropicLlmClient>());
 
 var app = builder.Build();
 
